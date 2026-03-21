@@ -81,49 +81,50 @@ const html = `<!DOCTYPE html>
     let decoder = null;
     let processedFiles = [];
 
-	window.onload = () => {
+    window.onload = function() {
       if (window.libheif) {
         decoder = new window.libheif.HeifDecoder();
-        console.log("HEIF Decoder ready");
       }
     };
 
-	['dragenter', 'dragover', 'dragleave', 'drop'].forEach(name => {
-      dropZone.addEventListener(name, (e) => {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function(name) {
+      dropZone.addEventListener(name, function(e) {
         e.preventDefault();
         e.stopPropagation();
       }, false);
     });
 
-    dropZone.addEventListener('dragover', () => dropZone.classList.add('dragover'));
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', (e) => {
+    dropZone.addEventListener('dragover', function() { dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+    dropZone.addEventListener('drop', function(e) {
       dropZone.classList.remove('dragover');
       handleFiles(e.dataTransfer.files);
     });
 
-    dropZone.onclick = () => fileInput.click();
-    fileInput.onchange = (e) => handleFiles(e.target.files);
+    dropZone.onclick = function() { fileInput.click(); };
+    fileInput.onchange = function(e) {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    };
 
     async function convertHeicToJpg(file) {
       if (!decoder) throw new Error("Decoder not ready");
 
-	  const buffer = await file.arrayBuffer();
+      const buffer = await file.arrayBuffer();
       const images = decoder.decode(new Uint8Array(buffer));
-      if (!images.length) throw new Error("HEIC decode failed");
 
-	  const image = images[0];
+      const image = images[0];
       const width = image.get_width();
       const height = image.get_height();
 
-	  const canvas = document.createElement('canvas');
+      const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       const imgData = ctx.createImageData(width, height);
 
-	  return new Promise((resolve) => {
-        image.display(imgData, (displayData) => {
+      return new Promise(function(resolve) {
+        image.display(imgData, function(displayData) {
           ctx.putImageData(displayData, 0, 0);
           canvas.toBlob(resolve, 'image/jpeg', 0.9);
         });
@@ -134,16 +135,16 @@ const html = `<!DOCTYPE html>
       const fileList = Array.from(files);
       if (!fileList.length) return;
 
-	  processedFiles = [];
-      resultGrid.innerHTML = '';
-      zipBtn.classList.add('hidden');
+	    // processedFiles = [];
+      // resultGrid.innerHTML = '';
+      // zipBtn.classList.add('hidden');
 
 	  const parallelLimit = 2;
       for (let i = 0; i < fileList.length; i += parallelLimit) {
         const chunk = fileList.slice(i, i + parallelLimit);
-        await Promise.all(chunk.map(async (file) => {
+        await Promise.all(chunk.map(async function(file) {
           let uploadFile = file;
-          
+
           if (file.name.toLowerCase().endsWith('.heic')) {
             status.innerText = "HEICデコード中...";
             try {
@@ -159,39 +160,41 @@ const html = `<!DOCTYPE html>
           formData.append('file', uploadFile);
 
           try {
-            status.innerText = \`圧縮中: \${processedFiles.length + 1} / \${fileList.length}\`;
+            status.innerText = "圧縮中...";
             const res = await fetch('/upload', { method: 'POST', body: formData });
             const blob = await res.blob();
-            
+
             processedFiles.push({ name: uploadFile.name, blob: blob });
             addPreview(URL.createObjectURL(blob), uploadFile.name);
           } catch (err) {
+            status.innerText = "通信エラー";
             console.error(err);
           }
         }));
       }
-      status.innerText = \`完了しました (\${processedFiles.length}枚)\`;
+      status.innerText = "完了 (合計: " + processedFiles.length + "枚)";
       if (processedFiles.length > 0) zipBtn.classList.remove('hidden');
     }
 
     function addPreview(url, name) {
       const div = document.createElement('div');
       div.className = "bg-white p-2 rounded-2xl shadow-sm border border-gray-100 animate-fade-in text-center";
-      div.innerHTML = \`
-        <img src="\${url}" class="w-full h-32 object-cover rounded-xl mb-2">
-        <p class="text-[10px] text-gray-400 truncate mb-1">\${name}</p>
-        <a href="\${url}" download="min_\${name}" class="text-xs text-blue-500 font-bold hover:underline">保存</a>
-      \`;
+      div.innerHTML = 
+        '<img src="' + url + '" class="w-full h-32 object-cover rounded-xl mb-2">' +
+        '<p class="text-[10px] text-gray-400 truncate mb-1">' + name + '</p>' +
+        '<a href="' + url + '" download="min_' + name + '" class="text-xs text-blue-500 font-bold hover:underline">保存</a>';
       resultGrid.appendChild(div);
     }
 
     async function downloadAll() {
       const zip = new JSZip();
-      processedFiles.forEach(f => zip.file(f.name.replace(/\\.[^/.]+$/, "") + ".jpg", f.blob));
+      processedFiles.forEach(function(f, i) {
+        zip.file(i + "_" + f.name, f.blob);
+      });
       const content = await zip.generateAsync({ type: "blob" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(content);
-      link.download = "IMGO_images.zip";
+      link.download = "images.zip";
       link.click();
     }
   </script>
