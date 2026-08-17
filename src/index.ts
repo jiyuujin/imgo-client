@@ -36,6 +36,13 @@ const html = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <title>IMGO - Compress Images</title>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-F757PCNJSX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-F757PCNJSX');
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/libheif-js@1.17.1/libheif-bundle.js"></script>
