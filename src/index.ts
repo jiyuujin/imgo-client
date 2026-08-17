@@ -135,11 +135,11 @@ const html = `<!DOCTYPE html>
       const fileList = Array.from(files);
       if (!fileList.length) return;
 
-	    // processedFiles = [];
+      // processedFiles = [];
       // resultGrid.innerHTML = '';
       // zipBtn.classList.add('hidden');
 
-	  const parallelLimit = 2;
+    const parallelLimit = 2;
       for (let i = 0; i < fileList.length; i += parallelLimit) {
         const chunk = fileList.slice(i, i + parallelLimit);
         await Promise.all(chunk.map(async function(file) {
