@@ -58,7 +58,7 @@ const html = `<!DOCTYPE html>
   <div class="max-w-4xl mx-auto">
     <header class="text-center mb-10">
       <h1 class="text-3xl font-black text-gray-900 tracking-tight italic">IMGO</h1>
-      <p class="text-gray-500 mt-2 font-medium">PNG / JPG / HEIC 対応 高速圧縮</p>
+      <p class="text-gray-500 mt-2 font-medium">PNG / JPG / HEIC / NEF 対応 高速圧縮</p>
     </header>
 
     <div id="dropZone" class="border-4 border-dashed border-gray-200 rounded-3xl p-12 text-center bg-white transition-all cursor-pointer shadow-sm">
@@ -77,6 +77,8 @@ const html = `<!DOCTYPE html>
       </button>
     </div>
 
+    <div id="failedList" class="mt-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+
     <div id="resultGrid" class="mt-8 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
   </div>
 
@@ -84,6 +86,7 @@ const html = `<!DOCTYPE html>
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
     const resultGrid = document.getElementById('resultGrid');
+    const failedList = document.getElementById('failedList');
     const status = document.getElementById('status');
     const zipBtn = document.getElementById('zipBtn');
 
@@ -140,51 +143,118 @@ const html = `<!DOCTYPE html>
       });
     }
 
+    async function processOne(file) {
+      let uploadFile = file;
+
+      if (file.name.toLowerCase().endsWith('.heic')) {
+        status.innerText = "HEICデコード中...";
+        try {
+          const jpgBlob = await convertHeicToJpg(file);
+          uploadFile = new File([jpgBlob], file.name.replace(/\\.heic$/i, ".jpg"), { type: "image/jpeg" });
+        } catch (e) {
+          console.error("HEIC Error:", e);
+          return { ok: false, reason: "HEIC変換に失敗" };
+        }
+      }
+
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+
+      try {
+        status.innerText = "圧縮中...";
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        if (!res.ok) {
+          return { ok: false, reason: "サーバーエラー (" + res.status + ")" };
+        }
+        const blob = await res.blob();
+
+        const ext = blob.type === 'image/webp' ? '.webp' : '.jpg';
+        const outName = uploadFile.name.replace(/\\.[^.]+$/, '') + ext;
+
+        processedFiles.push({ name: outName, blob: blob });
+        addPreview(URL.createObjectURL(blob), outName);
+        return { ok: true };
+      } catch (err) {
+        console.error(err);
+        return { ok: false, reason: "通信エラー" };
+      }
+    }
+
+    function updateSummary() {
+      const failed = failedList.children.length;
+      status.innerText = "完了 (合計: " + processedFiles.length + "枚" + (failed ? " / 失敗: " + failed + "枚" : "") + ")";
+      if (processedFiles.length > 0) zipBtn.classList.remove('hidden');
+    }
+
     async function handleFiles(files) {
       const fileList = Array.from(files);
       if (!fileList.length) return;
+
+      // 送信前に合計サイズを表示し、回線が弱そうなら確認する
+      const totalBytes = fileList.reduce(function(sum, f) { return sum + f.size; }, 0);
+      const totalMB = (totalBytes / 1048576).toFixed(1);
+      const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const weakNetwork = conn && (
+        conn.saveData ||
+        conn.type === 'cellular' ||
+        (conn.effectiveType && conn.effectiveType !== '4g')
+      );
+      if (weakNetwork && totalBytes >= 20 * 1048576) {
+        const ok = confirm("モバイル回線または低速回線の可能性があります。合計 " + totalMB + "MB をアップロードしますが、続行しますか？");
+        if (!ok) return;
+      }
+      status.innerText = fileList.length + "枚 / 合計 " + totalMB + "MB を送信します";
 
       // processedFiles = [];
       // resultGrid.innerHTML = '';
       // zipBtn.classList.add('hidden');
 
-    const parallelLimit = 2;
+      // 回線の弱い環境でも、失敗しにくいよう 1 枚ずつ送信する
+      const parallelLimit = 1;
       for (let i = 0; i < fileList.length; i += parallelLimit) {
         const chunk = fileList.slice(i, i + parallelLimit);
         await Promise.all(chunk.map(async function(file) {
-          let uploadFile = file;
-
-          if (file.name.toLowerCase().endsWith('.heic')) {
-            status.innerText = "HEICデコード中...";
-            try {
-              const jpgBlob = await convertHeicToJpg(file);
-              uploadFile = new File([jpgBlob], file.name.replace(/\\.heic$/i, ".jpg"), { type: "image/jpeg" });
-            } catch (e) {
-              console.error("HEIC Error:", e);
-              return;
-            }
-          }
-
-          const formData = new FormData();
-          formData.append('file', uploadFile);
-
-          try {
-            status.innerText = "圧縮中...";
-            const res = await fetch('/upload', { method: 'POST', body: formData });
-            const blob = await res.blob();
-
-            const ext = blob.type === 'image/webp' ? '.webp' : '.jpg';
-            const outName = uploadFile.name.replace(/\\.[^.]+$/, '') + ext;
-            processedFiles.push({ name: outName, blob: blob });
-            addPreview(URL.createObjectURL(blob), outName);
-          } catch (err) {
-            status.innerText = "通信エラー";
-            console.error(err);
-          }
+          const result = await processOne(file);
+          if (!result.ok) addFailed(file, result.reason);
         }));
       }
-      status.innerText = "完了 (合計: " + processedFiles.length + "枚)";
-      if (processedFiles.length > 0) zipBtn.classList.remove('hidden');
+      updateSummary();
+    }
+
+    function addFailed(file, reason) {
+      const div = document.createElement('div');
+      div.className = "bg-white p-3 rounded-2xl border border-red-200 animate-fade-in text-center";
+
+      const reasonEl = document.createElement('p');
+      reasonEl.className = "text-[10px] text-red-500 font-bold mb-1";
+      reasonEl.textContent = "失敗: " + reason;
+
+      const nameEl = document.createElement('p');
+      nameEl.className = "text-[10px] text-gray-400 truncate mb-1";
+      nameEl.textContent = file.name;
+
+      const btn = document.createElement('button');
+      btn.className = "text-xs text-blue-500 font-bold hover:underline";
+      btn.textContent = "再送";
+      btn.onclick = async function() {
+        btn.disabled = true;
+        btn.textContent = "送信中...";
+        const result = await processOne(file);
+        if (result.ok) {
+          div.remove();
+          updateSummary();
+        } else {
+          reasonEl.textContent = "失敗: " + result.reason;
+          btn.disabled = false;
+          btn.textContent = "再送";
+          status.innerText = "再送に失敗しました";
+        }
+      };
+
+      div.appendChild(reasonEl);
+      div.appendChild(nameEl);
+      div.appendChild(btn);
+      failedList.appendChild(div);
     }
 
     function addPreview(url, name) {
