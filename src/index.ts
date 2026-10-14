@@ -67,7 +67,7 @@ const html = `<!DOCTYPE html>
         <p class="text-lg font-bold text-gray-700">画像をここにドロップ</p>
         <p class="text-sm text-gray-400 italic">iPhoneのHEIC形式もそのままOK</p>
       </div>
-      <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+      <input type="file" id="fileInput" multiple accept="image/*,.nef" class="hidden">
     </div>
 
     <div class="mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -173,8 +173,10 @@ const html = `<!DOCTYPE html>
             const res = await fetch('/upload', { method: 'POST', body: formData });
             const blob = await res.blob();
 
-            processedFiles.push({ name: uploadFile.name, blob: blob });
-            addPreview(URL.createObjectURL(blob), uploadFile.name);
+            const ext = blob.type === 'image/webp' ? '.webp' : '.jpg';
+            const outName = uploadFile.name.replace(/\\.[^.]+$/, '') + ext;
+            processedFiles.push({ name: outName, blob: blob });
+            addPreview(URL.createObjectURL(blob), outName);
           } catch (err) {
             status.innerText = "通信エラー";
             console.error(err);
