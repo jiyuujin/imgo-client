@@ -22,7 +22,17 @@ export default {
     if (request.method === 'POST' && url.pathname === '/upload') {
       const cloudRunUrl = env.COMPRESS_API_URL;
       if (!cloudRunUrl) return new Response('COMPRESS_API_URL not set', { status: 500 });
-      return await fetch(cloudRunUrl, request);
+
+      // ?format=webp なら /compress_webp、それ以外は /compress（JPEG）
+      // COMPRESS_API_URL はドメイン部分だけを使うため、パスが付いていても問題はない
+      const endpoint = url.searchParams.get('format') === 'webp' ? '/compress_webp' : '/compress';
+      let target: string;
+      try {
+        target = new URL(endpoint, cloudRunUrl).toString();
+      } catch {
+        return new Response('COMPRESS_API_URL is invalid', { status: 500 });
+      }
+      return await fetch(target, request);
     }
 
     return new Response(html, {
@@ -62,6 +72,15 @@ const html = `<!DOCTYPE html>
       <h1 class="text-3xl font-black text-gray-900 tracking-tight italic">IMGO</h1>
       <p class="text-gray-500 mt-2 font-medium">PNG / JPG / HEIC / NEF 対応 高速圧縮</p>
     </header>
+
+    <div class="mb-3 flex flex-col sm:flex-row items-center justify-center gap-3">
+      <span class="text-sm font-bold text-gray-500">出力形式</span>
+      <div id="formatGroup" class="inline-flex rounded-full bg-white border border-gray-200 p-1 shadow-sm" role="radiogroup" aria-label="出力形式">
+        <button type="button" data-format="jpeg" role="radio" aria-checked="true">JPEG</button>
+        <button type="button" data-format="webp" role="radio" aria-checked="false">WebP</button>
+      </div>
+    </div>
+    <p id="formatHint" class="text-center text-xs text-gray-400 mb-6 min-h-[2rem]"></p>
 
     <div id="dropZone" class="border-4 border-dashed border-gray-200 rounded-3xl p-12 text-center bg-white transition-all cursor-pointer shadow-sm">
       <div class="space-y-4 pointer-events-none">
@@ -111,6 +130,14 @@ const html = `<!DOCTYPE html>
     const zipBtn = document.getElementById('zipBtn');
     const stopBtn = document.getElementById('stopBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const formatGroup = document.getElementById('formatGroup');
+    const formatHint = document.getElementById('formatHint');
+
+    const FORMAT_LABEL = { jpeg: 'JPEG', webp: 'WebP' };
+    const FORMAT_HINT = {
+      jpeg: 'JPEG: 軽量で互換性が高い形式です（非可逆圧縮）。Web 掲載や OGP・SNS 共有に向いています。透過 PNG は白背景になります。',
+      webp: 'WebP: 画素をそのまま保つ可逆圧縮です。アーカイブ向きですが、元が JPEG の場合はサイズが増えることがあります。透過は保たれます。'
+    };
 
     const ZIP_LABEL = 'すべての画像をZIPで保存';
     const BASE_TITLE = document.title;
@@ -124,6 +151,30 @@ const html = `<!DOCTYPE html>
     let running = false;
     let wakeLock = null;
     let seq = 0;
+    let outputFormat = 'jpeg';
+
+    function setFormat(f) {
+      outputFormat = f;
+      formatGroup.querySelectorAll('button').forEach(function(btn) {
+        const on = btn.dataset.format === f;
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+        btn.className = 'px-5 py-1.5 rounded-full text-sm font-bold transition-all ' +
+          (on ? 'bg-gray-900 text-white' : 'text-gray-500 hover:text-gray-800');
+      });
+      formatHint.textContent = FORMAT_HINT[f];
+      try { localStorage.setItem('imgo_format', f); } catch (e) {}
+    }
+
+    formatGroup.querySelectorAll('button').forEach(function(btn) {
+      btn.onclick = function() { setFormat(btn.dataset.format); };
+    });
+
+    // 前回選んだ形式を復元する
+    try {
+      const saved = localStorage.getItem('imgo_format');
+      if (saved === 'jpeg' || saved === 'webp') outputFormat = saved;
+    } catch (e) {}
+    setFormat(outputFormat);
 
     window.onload = function() {
       if (window.libheif) {
@@ -216,7 +267,7 @@ const html = `<!DOCTYPE html>
       root.className = "bg-white p-2 rounded-2xl shadow-sm border border-gray-100 animate-fade-in text-center";
 
       const thumb = document.createElement('div');
-      thumb.className = "w-full h-32 rounded-xl mb-2 bg-gray-50 overflow-hidden flex items-center justify-center";
+      thumb.className = "relative w-full h-32 rounded-xl mb-2 bg-gray-50 overflow-hidden flex items-center justify-center";
       const ph = document.createElement('div');
       ph.className = "flex flex-col items-center text-gray-500";
       const icon = document.createElement('div');
@@ -226,6 +277,11 @@ const html = `<!DOCTYPE html>
       ph.appendChild(icon);
       ph.appendChild(pct);
       thumb.appendChild(ph);
+
+      const badge = document.createElement('span');
+      badge.className = "absolute top-1 right-1 text-[9px] font-bold bg-black/60 text-white rounded px-1.5 py-0.5";
+      badge.textContent = FORMAT_LABEL[item.format] || '';
+      thumb.appendChild(badge);
 
       const nameEl = document.createElement('p');
       nameEl.className = "text-[10px] text-gray-500 truncate mb-1";
@@ -447,7 +503,7 @@ const html = `<!DOCTYPE html>
       return 'サーバーエラー (' + code + ')';
     }
 
-    // 進捗の配分: 送信 0-80% / サーバー処理 80% で待機 / 受信 80-100%
+    // 進捗の配分: 送信 0〜80% / サーバー処理 80%で待機 / 受信 80〜100%
     function sendFile(item, uploadFile) {
       return new Promise(function(resolve, reject) {
         const formData = new FormData();
@@ -455,7 +511,7 @@ const html = `<!DOCTYPE html>
 
         const xhr = new XMLHttpRequest();
         item.xhr = xhr;
-        xhr.open('POST', '/upload');
+        xhr.open('POST', '/upload?format=' + item.format);
         xhr.responseType = 'blob';
 
         xhr.upload.onprogress = function(e) {
@@ -559,6 +615,7 @@ const html = `<!DOCTYPE html>
           id: ++seq,
           file: file,
           isRaw: file.name.toLowerCase().endsWith('.nef'),
+          format: outputFormat,
           state: 'queued',
           frac: 0,
           indeterminate: false,
