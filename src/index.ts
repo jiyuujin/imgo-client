@@ -57,7 +57,6 @@ const html = `<!DOCTYPE html>
      crossorigin="anonymous"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/libheif-js@1.17.1/libheif-bundle.js"></script>
   <style>
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
     .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
@@ -89,7 +88,7 @@ const html = `<!DOCTYPE html>
         <p class="text-sm text-gray-400 italic">iPhoneのHEIC形式もそのままOK</p>
         <p class="text-xs text-gray-400">クリックして選択 ・ 貼り付け（Ctrl / ⌘ + V）も使えます</p>
       </div>
-      <input type="file" id="fileInput" multiple accept="image/*,.nef" class="hidden">
+      <input type="file" id="fileInput" multiple accept="image/*,.heic,.heif,.nef" class="hidden">
     </div>
 
     <div id="panel" class="hidden mt-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -472,30 +471,6 @@ const html = `<!DOCTYPE html>
       updateOverall();
     }
 
-    async function convertHeicToJpg(file) {
-      if (!decoder) throw new Error("Decoder not ready");
-
-      const buffer = await file.arrayBuffer();
-      const images = decoder.decode(new Uint8Array(buffer));
-
-      const image = images[0];
-      const width = image.get_width();
-      const height = image.get_height();
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      const imgData = ctx.createImageData(width, height);
-
-      return new Promise(function(resolve) {
-        image.display(imgData, function(displayData) {
-          ctx.putImageData(displayData, 0, 0);
-          canvas.toBlob(resolve, 'image/jpeg', 0.9);
-        });
-      });
-    }
-
     function httpMessage(code) {
       if (code === 400) return '画像を読み込めませんでした（未対応の形式の可能性）';
       if (code === 413) return 'ファイルが大きすぎます';
@@ -537,24 +512,7 @@ const html = `<!DOCTYPE html>
     async function processItem(item) {
       item.cancelled = false;
       item.error = '';
-      let uploadFile = item.file;
-
-      if (item.file.name.toLowerCase().endsWith('.heic')) {
-        setItem(item, 'converting', 0, true);
-        try {
-          const jpgBlob = await convertHeicToJpg(item.file);
-          uploadFile = new File([jpgBlob], item.file.name.replace(/\\.heic$/i, ".jpg"), { type: "image/jpeg" });
-        } catch (e) {
-          console.error("HEIC Error:", e);
-          item.error = 'HEIC変換に失敗しました';
-          setItem(item, 'error', 1);
-          return;
-        }
-        if (item.cancelled) {
-          setItem(item, 'cancelled', 0);
-          return;
-        }
-      }
+      const uploadFile = item.file;
 
       setItem(item, 'uploading', 0);
       try {
